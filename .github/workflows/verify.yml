@@ -1,0 +1,113 @@
+name: Factory exact-head verification
+run-name: fleet-${{ inputs.request_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: Public owner/repository
+        required: true
+        type: string
+      sha:
+        description: Exact 40-character public commit SHA
+        required: true
+        type: string
+      command:
+        description: Shell verification command (public data only)
+        required: true
+        type: string
+      runner:
+        description: Avrea runner label
+        default: avrea-ubuntu-latest-2-vcpu
+        type: string
+      fetch:
+        description: Newline-separated relative artifact globs
+        default: ''
+        type: string
+      matrix:
+        description: JSON array of commands; empty uses command
+        default: '[]'
+        type: string
+      parallel:
+        description: Account-approved maximum concurrent jobs
+        default: '1'
+        type: string
+      timeout_minutes:
+        description: Maximum command duration in minutes
+        default: '20'
+        type: string
+      request_id:
+        description: Unique fleet client correlation identifier
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.validate.outputs.matrix }}
+      parallel: ${{ steps.validate.outputs.parallel }}
+      timeout: ${{ steps.validate.outputs.timeout }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - id: validate
+        env:
+          INPUT_REPOSITORY: ${{ inputs.repository }}
+          INPUT_SHA: ${{ inputs.sha }}
+          INPUT_COMMAND: ${{ inputs.command }}
+          INPUT_RUNNER: ${{ inputs.runner }}
+          INPUT_FETCH: ${{ inputs.fetch }}
+          INPUT_MATRIX: ${{ inputs.matrix }}
+          INPUT_PARALLEL: ${{ inputs.parallel }}
+          INPUT_TIMEOUT: ${{ inputs.timeout_minutes }}
+          INPUT_REQUEST_ID: ${{ inputs.request_id }}
+        run: python3 executor.py validate
+  verify:
+    needs: validate
+    name: verify-${{ matrix.index }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ fromJSON(needs.validate.outputs.timeout) }}
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(needs.validate.outputs.parallel) }}
+      matrix:
+        include: ${{ fromJSON(needs.validate.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: .fleet
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.sha }}
+          path: target
+          persist-credentials: false
+          submodules: recursive
+      - id: command
+        shell: bash
+        env:
+          INPUT_REPOSITORY: ${{ inputs.repository }}
+          INPUT_SHA: ${{ inputs.sha }}
+          INPUT_COMMAND: ${{ matrix.command }}
+          INPUT_RUNNER: ${{ inputs.runner }}
+          INPUT_INDEX: ${{ matrix.index }}
+          INPUT_TIMEOUT: ${{ inputs.timeout_minutes }}
+          INPUT_FETCH: ${{ inputs.fetch }}
+        run: python3 .fleet/executor.py execute
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fleet-result-${{ matrix.index }}
+          path: ${{ runner.temp }}/fleet-result-${{ matrix.index }}/
+          retention-days: 7
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && inputs.fetch != '' }}
+        with:
+          name: fleet-files-${{ matrix.index }}
+          path: ${{ steps.command.outputs.fetch }}
+          retention-days: 7
+          if-no-files-found: warn
