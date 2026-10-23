@@ -17,7 +17,7 @@ on:
         type: string
       runner:
         description: Avrea runner label
-        default: avrea-ubuntu-latest-2-vcpu
+        default: avrea-ubuntu-latest-4-vcpu
         type: string
       fetch:
         description: Newline-separated relative artifact globs

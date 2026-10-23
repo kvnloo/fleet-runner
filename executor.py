@@ -20,15 +20,18 @@ def validate_inputs(env):
     if not re.fullmatch(r'[0-9a-f]{40}', sha):
         raise ValueError('sha must be an exact lowercase 40-character commit')
     runner = env['INPUT_RUNNER']
-    linux = r'avrea-ubuntu-(?:latest|22\.04|24\.04|26\.04)-(?:arm-)?(?:1|2|4|8|16|32)-vcpu(?:-(?:8|16)gb)?'
+    linux = r'avrea-ubuntu-(?:latest|22\.04|24\.04|26\.04)-(?:arm-)?(?:(?:1|2|4|8|16|32)-vcpu|4-vcpu-8gb|8-vcpu-16gb)'
     if not re.fullmatch(linux + r'|avrea-macos-26-(?:8|16)-vcpu|avrea-windows-2025-(?:2|4|8|16)-vcpu', runner):
         raise ValueError('unsupported Avrea label')
     if '-arm-32-' in runner or '22.04-arm-' in runner:
         raise ValueError('unsupported ARM size/image')
     if not re.fullmatch(r'[a-zA-Z0-9-]{1,64}', env['INPUT_REQUEST_ID']):
         raise ValueError('invalid request ID')
-    commands = json.loads(env.get('INPUT_MATRIX', '[]')) or [env['INPUT_COMMAND']]
-    if not isinstance(commands, list) or not 1 <= len(commands) <= 32 or any(not isinstance(c, str) or not c.strip() for c in commands):
+    commands = json.loads(env.get('INPUT_MATRIX', '[]'))
+    if not isinstance(commands, list):
+        raise ValueError('matrix must be a JSON array')
+    commands = commands or [env['INPUT_COMMAND']]
+    if not 1 <= len(commands) <= 32 or any(not isinstance(c, str) or not c.strip() for c in commands):
         raise ValueError('matrix must contain 1..32 nonempty command strings')
     parallel = int(env['INPUT_PARALLEL'])
     timeout = int(env['INPUT_TIMEOUT'])
