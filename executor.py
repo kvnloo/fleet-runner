@@ -27,6 +27,8 @@ def validate_inputs(env):
         raise ValueError('unsupported ARM size/image')
     if not re.fullmatch(r'[a-zA-Z0-9-]{1,64}', env['INPUT_REQUEST_ID']):
         raise ValueError('invalid request ID')
+    if env.get('INPUT_PACKAGE_INDEX', '') not in {'', 'official', 'avrea'}:
+        raise ValueError('index must be official or avrea')
     commands = json.loads(env.get('INPUT_MATRIX', '[]'))
     if not isinstance(commands, list):
         raise ValueError('matrix must be a JSON array')
