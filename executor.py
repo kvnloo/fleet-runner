@@ -27,6 +27,8 @@ def validate_inputs(env):
         raise ValueError('unsupported ARM size/image')
     if not re.fullmatch(r'[a-zA-Z0-9-]{1,64}', env['INPUT_REQUEST_ID']):
         raise ValueError('invalid request ID')
+    if env.get('INPUT_PACKAGE_INDEX', '') not in {'', 'official', 'avrea'}:
+        raise ValueError('index must be official or avrea')
     commands = json.loads(env.get('INPUT_MATRIX', '[]'))
     if not isinstance(commands, list):
         raise ValueError('matrix must be a JSON array')
@@ -42,6 +44,29 @@ def validate_inputs(env):
         if not glob or glob.startswith(('/', '~', '!', '\\')) or '..' in parts or '.git' in parts or ':' in glob or '\\' in glob:
             raise ValueError('fetch globs must be relative public output paths, not .git')
     return [{'index': i, 'command': c} for i, c in enumerate(commands)], parallel, timeout
+
+
+def select_index(root, requested):
+    if requested:
+        if requested not in {'official', 'avrea'}:
+            raise ValueError('index must be official or avrea')
+        return requested
+    for name in ('uv.lock', 'poetry.lock'):
+        path = root / name
+        if path.is_file() and 'pypi.org' in path.read_text():
+            return 'official'
+    for path in root.rglob('*requirements*.txt'):
+        if '.git' not in path.parts:
+            text = path.read_text()
+            if '--hash=' in text:
+                return 'official'
+    return 'avrea'
+
+
+def reset_signals():
+    for name in ('SIGHUP', 'SIGINT', 'SIGQUIT'):
+        if hasattr(signal, name):
+            signal.signal(getattr(signal, name), signal.SIG_DFL)
 
 
 def validate():
@@ -65,10 +90,16 @@ def execute():
     result_dir.mkdir(parents=True, exist_ok=True)
     # Commands receive no GitHub/Avrea API credentials. Target checkout never persists one.
     child_env = {k: v for k, v in env.items() if k not in {'GITHUB_TOKEN', 'GH_TOKEN', 'AVR_TOKEN'} and not k.startswith('INPUT_')}
+    index = select_index(Path('target'), env.get('INPUT_PACKAGE_INDEX', ''))
+    if index == 'official':
+        for key in ('PIP_EXTRA_INDEX_URL', 'UV_EXTRA_INDEX_URL', 'UV_INDEX', 'UV_DEFAULT_INDEX'):
+            child_env.pop(key, None)
+        child_env['PIP_INDEX_URL'] = 'https://pypi.org/simple'
+        child_env['UV_INDEX_URL'] = 'https://pypi.org/simple'
     command = env['INPUT_COMMAND']
     started = time.time()
     with open(result_dir / 'stdout.log', 'wb') as log:
-        process = subprocess.Popen(['bash', '-o', 'pipefail', '-c', command], cwd='target', env=child_env, stdout=log, stderr=subprocess.STDOUT, start_new_session=os.name != 'nt')
+        process = subprocess.Popen(['bash', '-o', 'pipefail', '-c', command], cwd='target', env=child_env, stdout=log, stderr=subprocess.STDOUT, start_new_session=os.name != 'nt', preexec_fn=reset_signals if os.name != 'nt' else None)
         try:
             code = process.wait(timeout=int(env['INPUT_TIMEOUT']) * 60)
         except subprocess.TimeoutExpired:
@@ -80,6 +111,7 @@ def execute():
             code = 124
     code = code if code >= 0 else 128 - code
     receipt = {'repository': env['INPUT_REPOSITORY'], 'sha': actual, 'runner': env['INPUT_RUNNER'], 'index': int(env['INPUT_INDEX']), 'command': command, 'exit_code': code, 'started_at': dt.datetime.fromtimestamp(started, dt.timezone.utc).isoformat(), 'duration_seconds': time.time() - started, 'run_id': env['GITHUB_RUN_ID'], 'run_attempt': env['GITHUB_RUN_ATTEMPT']}
+    receipt['package_index'] = index
     (result_dir / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
     print((result_dir / 'stdout.log').read_text(errors='replace'))
     fetch = '\n'.join(str(Path(env['GITHUB_WORKSPACE']) / 'target' / p) for p in env.get('INPUT_FETCH', '').splitlines())

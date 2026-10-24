@@ -1,5 +1,7 @@
 import unittest
-from executor import validate_inputs
+from pathlib import Path
+import tempfile
+from executor import validate_inputs, select_index
 
 
 class InputTests(unittest.TestCase):
@@ -41,6 +43,24 @@ class InputTests(unittest.TestCase):
     def test_explicit_github_timing_control(self):
         matrix, _, _ = validate_inputs(self.base(INPUT_RUNNER='ubuntu-latest'))
         self.assertEqual(matrix[0]['command'], 'make test')
+
+    def test_invalid_index_refused(self):
+        with self.assertRaises(ValueError):
+            validate_inputs(self.base(INPUT_PACKAGE_INDEX='other'))
+
+    def test_index_selection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(select_index(root, ''), 'avrea')
+            for name in ('uv.lock', 'poetry.lock'):
+                path = root / name
+                path.write_text('https://pypi.org/simple')
+                self.assertEqual(select_index(root, ''), 'official')
+                self.assertEqual(select_index(root, 'avrea'), 'avrea')
+                path.unlink()
+            (root / 'requirements.txt').write_text('package==1 --hash=sha256:abc')
+            self.assertEqual(select_index(root, ''), 'official')
+            self.assertEqual(select_index(root, 'official'), 'official')
 
 
 if __name__ == '__main__':
