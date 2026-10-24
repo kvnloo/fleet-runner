@@ -19,6 +19,10 @@ on:
         description: Avrea runner label
         default: avrea-ubuntu-latest-4-vcpu
         type: string
+      package_index:
+        description: Python index override (official or avrea); empty auto-detects lockfiles
+        default: ''
+        type: string
       fetch:
         description: Newline-separated relative artifact globs
         default: ''
@@ -64,6 +68,7 @@ jobs:
           INPUT_PARALLEL: ${{ inputs.parallel }}
           INPUT_TIMEOUT: ${{ inputs.timeout_minutes }}
           INPUT_REQUEST_ID: ${{ inputs.request_id }}
+          INPUT_PACKAGE_INDEX: ${{ inputs.package_index }}
         run: python3 executor.py validate
   verify:
     needs: validate
@@ -97,6 +102,7 @@ jobs:
           INPUT_INDEX: ${{ matrix.index }}
           INPUT_TIMEOUT: ${{ inputs.timeout_minutes }}
           INPUT_FETCH: ${{ inputs.fetch }}
+          INPUT_PACKAGE_INDEX: ${{ inputs.package_index }}
         run: python3 .fleet/executor.py execute
       - uses: actions/upload-artifact@v4
         if: always()
