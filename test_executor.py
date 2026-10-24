@@ -38,6 +38,10 @@ class InputTests(unittest.TestCase):
             with self.subTest(matrix=matrix), self.assertRaises(ValueError):
                 validate_inputs(self.base(INPUT_MATRIX=matrix))
 
+    def test_explicit_github_timing_control(self):
+        matrix, _, _ = validate_inputs(self.base(INPUT_RUNNER='ubuntu-latest'))
+        self.assertEqual(matrix[0]['command'], 'make test')
+
 
 if __name__ == '__main__':
     unittest.main()
