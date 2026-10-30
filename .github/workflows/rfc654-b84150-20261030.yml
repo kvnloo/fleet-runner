@@ -45,7 +45,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          uv lock --refresh > rfc-out/lock-refresh.log 2>&1 || { tail -n 90 rfc-out/lock-refresh.log; exit 3; }
+          "$HERMES_PYTHON" -c 'from pathlib import Path; from pm import lock_project; lock_project(Path("."), explicit=True)' > rfc-out/lock-refresh.log 2>&1 || { tail -n 90 rfc-out/lock-refresh.log; exit 3; }
           git diff -- uv.lock > rfc-out/lock-refresh.patch
           sha256sum uv.lock > rfc-out/lock-refresh.sha256
           git status --porcelain > rfc-out/checkout-after-lock.txt
