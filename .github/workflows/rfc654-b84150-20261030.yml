@@ -49,9 +49,14 @@ jobs:
           git diff -- uv.lock > rfc-out/lock-refresh.patch
           sha256sum uv.lock > rfc-out/lock-refresh.sha256
           git status --porcelain > rfc-out/checkout-after-lock.txt
-          test -s rfc-out/lock-refresh.patch
-          echo 'BASE SOURCE NOT PRISTINE: uv.lock regenerated locally; diagnostic only'
-          git diff --stat -- uv.lock
+          echo 'Local lock resolution output:'
+          tail -n 25 rfc-out/lock-refresh.log
+          if test -s rfc-out/lock-refresh.patch; then
+            echo 'BASE SOURCE DIRTY: uv.lock regenerated locally; diagnostic only'
+            git diff --stat -- uv.lock
+          else
+            echo 'Lock resolution made no content change; still requires PM lock check'
+          fi
       - name: Build pinned Hermes test environment
         uses: ./.github/actions/setup-pm
         with:
