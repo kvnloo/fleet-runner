@@ -40,7 +40,7 @@ jobs:
         uses: ./.github/actions/setup-pm
         with:
           toolchain: python
-          extras: '["all","anthropic","bedrock","mistral","fal","modal","daytona","parallel-web","keychain"]'
+          extras: '["all","anthropic","bedrock","mistral","fal","modal","daytona","parallel-web"]'
           test-environment: 'true'
           cache: 'false'
       - name: Install verified ripgrep if needed
