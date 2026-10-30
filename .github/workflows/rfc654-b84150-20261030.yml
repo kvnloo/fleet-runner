@@ -36,6 +36,22 @@ jobs:
           test "$(git rev-parse HEAD)" = "b84150e9be88911280f981467de9628fcfb0f60f"
           printf 'repo=c0wb0yp0tat0/hermes-agent\nsha=b84150e9be88911280f981467de9628fcfb0f60f\nslice=%s\n' '${{ matrix.slice }}' > rfc-out/source.txt
           sha256sum -c KVNLOO654-297-BATTERY-MANIFEST-20261030.sha256 | tee rfc-out/manifest-check.log
+      - name: Bootstrap pinned uv without project dependencies
+        uses: ./.github/actions/setup-pm
+        with:
+          toolchain: python
+          cache: 'false'
+      - name: Regenerate stale lockfile in disposable checkout (diagnostic only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv lock > rfc-out/lock-refresh.log 2>&1 || { tail -n 90 rfc-out/lock-refresh.log; exit 3; }
+          git diff -- uv.lock > rfc-out/lock-refresh.patch
+          sha256sum uv.lock > rfc-out/lock-refresh.sha256
+          git status --porcelain > rfc-out/checkout-after-lock.txt
+          test -s rfc-out/lock-refresh.patch
+          echo 'BASE SOURCE NOT PRISTINE: uv.lock regenerated locally; diagnostic only'
+          git diff --stat -- uv.lock
       - name: Build pinned Hermes test environment
         uses: ./.github/actions/setup-pm
         with:
