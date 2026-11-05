@@ -16,8 +16,8 @@ on:
         required: true
         type: string
       runner:
-        description: Avrea runner label
-        default: avrea-ubuntu-latest-4-vcpu
+        description: Runner label (boat sizes; avrea-ubuntu-*-N-vcpu maps to the matching boat size)
+        default: boat
         type: string
       package_index:
         description: Python index override (official or avrea); empty auto-detects lockfiles
@@ -47,12 +47,13 @@ permissions:
   contents: read
 jobs:
   validate:
-    runs-on: avrea-ubuntu-latest-2-vcpu
+    runs-on: boat-small
     timeout-minutes: 2
     outputs:
       matrix: ${{ steps.validate.outputs.matrix }}
       parallel: ${{ steps.validate.outputs.parallel }}
       timeout: ${{ steps.validate.outputs.timeout }}
+      runner: ${{ steps.validate.outputs.runner }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -73,7 +74,7 @@ jobs:
   verify:
     needs: validate
     name: verify-${{ matrix.index }}
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ needs.validate.outputs.runner }}
     timeout-minutes: ${{ fromJSON(needs.validate.outputs.timeout) }}
     strategy:
       fail-fast: false

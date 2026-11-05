@@ -12,6 +12,21 @@ import time
 import urllib.request
 
 
+BOAT_SIZES = {1: 'boat-small', 2: 'boat-small', 4: 'boat', 8: 'boat-large', 16: 'boat-xlarge', 32: 'boat-xlarge'}
+
+
+def boat_runner(runner):
+    """Map a requested label to the label the job runs on.
+
+    Avrea's free minutes are spent, so x86 Linux labels run on Boat's
+    `runs-on: boat` sizes (paid plan hours). ARM, macOS, Windows and GitHub
+    timing-control labels pass through unchanged."""
+    if re.fullmatch(r'boat(?:-small|-large|-xlarge)?', runner):
+        return runner
+    m = re.fullmatch(r'avrea-ubuntu-(?:latest|22\.04|24\.04|26\.04)-(1|2|4|8|16|32)-vcpu(?:-\d+gb)?', runner)
+    return BOAT_SIZES[int(m.group(1))] if m else runner
+
+
 def validate_inputs(env):
     repository = env['INPUT_REPOSITORY']
     sha = env['INPUT_SHA']
@@ -21,7 +36,7 @@ def validate_inputs(env):
         raise ValueError('sha must be an exact lowercase 40-character commit')
     runner = env['INPUT_RUNNER']
     linux = r'avrea-ubuntu-(?:latest|22\.04|24\.04|26\.04)-(?:arm-)?(?:(?:1|2|4|8|16|32)-vcpu|4-vcpu-8gb|8-vcpu-16gb)'
-    if not re.fullmatch(linux + r'|avrea-macos-26-(?:8|16)-vcpu|avrea-windows-2025-(?:2|4|8|16)-vcpu|ubuntu-latest|windows-latest|macos-14', runner):
+    if not re.fullmatch(linux + r'|boat(?:-small|-large|-xlarge)?|avrea-macos-26-(?:8|16)-vcpu|avrea-windows-2025-(?:2|4|8|16)-vcpu|ubuntu-latest|windows-latest|macos-14', runner):
         raise ValueError('unsupported runner label (GitHub labels are timing controls only)')
     if '-arm-32-' in runner or '22.04-arm-' in runner:
         raise ValueError('unsupported ARM size/image')
@@ -79,6 +94,7 @@ def validate():
     with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
         output.write('matrix=' + json.dumps(matrix, separators=(',', ':')) + '\n')
         output.write(f'parallel={parallel}\ntimeout={timeout + 5}\n')
+        output.write('runner=' + boat_runner(os.environ['INPUT_RUNNER']) + '\n')
 
 
 def execute():
