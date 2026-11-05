@@ -12,19 +12,17 @@ import time
 import urllib.request
 
 
-BOAT_SIZES = {1: 'boat-small', 2: 'boat-small', 4: 'boat', 8: 'boat-large', 16: 'boat-xlarge', 32: 'boat-xlarge'}
-
-
-def boat_runner(runner):
+def run_label(runner):
     """Map a requested label to the label the job runs on.
 
-    Avrea's free minutes are spent, so x86 Linux labels run on Boat's
-    `runs-on: boat` sizes (paid plan hours). ARM, macOS, Windows and GitHub
-    timing-control labels pass through unchanged."""
-    if re.fullmatch(r'boat(?:-small|-large|-xlarge)?', runner):
-        return runner
-    m = re.fullmatch(r'avrea-ubuntu-(?:latest|22\.04|24\.04|26\.04)-(1|2|4|8|16|32)-vcpu(?:-\d+gb)?', runner)
-    return BOAT_SIZES[int(m.group(1))] if m else runner
+    Avrea's free minutes ran out, so x86 Linux avrea labels run on GitHub's
+    `ubuntu-latest` (free and unmetered for public repositories; this lane
+    accepts only public repositories). Boat labels are an explicit opt-in for
+    work GitHub can't do (snapshots/forks, >4 vCPU, long-lived agents).
+    Everything else passes through unchanged."""
+    if re.fullmatch(r'avrea-ubuntu-(?:latest|22\.04|24\.04|26\.04)-(?:1|2|4|8|16|32)-vcpu(?:-\d+gb)?', runner):
+        return 'ubuntu-latest'
+    return runner
 
 
 def validate_inputs(env):
@@ -94,7 +92,7 @@ def validate():
     with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
         output.write('matrix=' + json.dumps(matrix, separators=(',', ':')) + '\n')
         output.write(f'parallel={parallel}\ntimeout={timeout + 5}\n')
-        output.write('runner=' + boat_runner(os.environ['INPUT_RUNNER']) + '\n')
+        output.write('runner=' + run_label(os.environ['INPUT_RUNNER']) + '\n')
 
 
 def execute():

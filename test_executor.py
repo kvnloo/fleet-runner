@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 import tempfile
-from executor import validate_inputs, select_index, boat_runner
+from executor import validate_inputs, select_index, run_label
 
 
 class InputTests(unittest.TestCase):
@@ -67,19 +67,16 @@ if __name__ == '__main__':
     unittest.main()
 
 
-class BoatRunnerTests(unittest.TestCase):
-    def test_avrea_linux_maps_to_boat_size(self):
-        cases = {'avrea-ubuntu-latest-2-vcpu': 'boat-small', 'avrea-ubuntu-latest-4-vcpu': 'boat',
-                 'avrea-ubuntu-24.04-8-vcpu': 'boat-large', 'avrea-ubuntu-latest-16-vcpu': 'boat-xlarge',
-                 'avrea-ubuntu-latest-4-vcpu-8gb': 'boat'}
-        for label, want in cases.items():
+class RunLabelTests(unittest.TestCase):
+    def test_avrea_linux_runs_free_on_github(self):
+        for label in ('avrea-ubuntu-latest-2-vcpu', 'avrea-ubuntu-24.04-8-vcpu', 'avrea-ubuntu-latest-4-vcpu-8gb'):
             with self.subTest(label=label):
-                self.assertEqual(boat_runner(label), want)
+                self.assertEqual(run_label(label), 'ubuntu-latest')
 
-    def test_non_linux_and_boat_pass_through(self):
+    def test_boat_and_others_pass_through(self):
         for label in ('boat', 'boat-large', 'avrea-macos-26-8-vcpu', 'avrea-ubuntu-latest-arm-4-vcpu', 'ubuntu-latest'):
             with self.subTest(label=label):
-                self.assertEqual(boat_runner(label), label)
+                self.assertEqual(run_label(label), label)
 
     def test_boat_labels_validate(self):
         env = {'INPUT_REPOSITORY': 'owner/repo', 'INPUT_SHA': 'a' * 40, 'INPUT_RUNNER': 'boat-large',

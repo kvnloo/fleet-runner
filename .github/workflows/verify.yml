@@ -16,8 +16,8 @@ on:
         required: true
         type: string
       runner:
-        description: Runner label (boat sizes; avrea-ubuntu-*-N-vcpu maps to the matching boat size)
-        default: boat
+        description: Runner label (avrea-ubuntu-* runs on free ubuntu-latest; boat* only for work GitHub can't run)
+        default: ubuntu-latest
         type: string
       package_index:
         description: Python index override (official or avrea); empty auto-detects lockfiles
@@ -47,7 +47,7 @@ permissions:
   contents: read
 jobs:
   validate:
-    runs-on: boat-small
+    runs-on: ubuntu-latest
     timeout-minutes: 2
     outputs:
       matrix: ${{ steps.validate.outputs.matrix }}
