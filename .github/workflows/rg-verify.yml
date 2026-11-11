@@ -1,0 +1,129 @@
+# Red/green check for add-on commits, before anything is posted upstream.
+# Comment on this repo's "Red/green requests" issue (commits may live on kvnloo/hermes-agent or upstream):
+#   /rg <commit-sha> [base=<sha>] [tests=<path>[,<path>...]]
+# GREEN runs the tests at <commit>. RED keeps those test files but reverts every
+# other file changed between <base> (default: the commit's parent) and <commit>.
+# Judged tests = test functions the commit adds (else all in the changed files).
+# Verdict DISCRIMINATES only when every judged test fails RED and passes GREEN. The workflow
+# replies on the same issue with the verdict and the run link.
+name: Red/green verify
+on:
+  issue_comment:
+    types: [created]
+permissions: {}
+concurrency:
+  group: rg-${{ github.event.comment.id }}
+jobs:
+  run:
+    if: startsWith(github.event.comment.body, '/rg ') && github.event.comment.user.login == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    outputs:
+      report: ${{ steps.rg.outputs.report }}
+    steps:
+      - name: Parse request
+        id: req
+        env:
+          BODY: ${{ github.event.comment.body }}
+        run: |
+          line=$(printf '%s\n' "$BODY" | head -1)
+          sha=$(printf '%s' "$line" | awk '{print $2}')
+          base=$(printf '%s' "$line" | grep -o 'base=[0-9a-fA-F]*' | cut -d= -f2 || true)
+          tests=$(printf '%s' "$line" | grep -o 'tests=[^ ]*' | cut -d= -f2 | tr ',' ' ' || true)
+          [[ "$sha" =~ ^[0-9a-fA-F]{7,40}$ ]] || { echo "bad sha: $sha"; exit 1; }
+          { echo "sha=$sha"; echo "base=$base"; echo "tests=$tests"; } >> "$GITHUB_OUTPUT"
+      - name: Check out the commit
+        id: co
+        env:
+          SHA: ${{ steps.req.outputs.sha }}
+          BASE: ${{ steps.req.outputs.base }}
+          TESTS: ${{ steps.req.outputs.tests }}
+        run: |
+          git init -q . && git config advice.detachedHead false
+          git remote add fork https://github.com/kvnloo/hermes-agent.git
+          git remote add upstream https://github.com/NousResearch/hermes-agent.git
+          get() { git fetch -q --depth="$2" fork "$1" 2>/dev/null || git fetch -q --depth="$2" upstream "$1"; }
+          get "$SHA" 2 || { echo "commit $SHA not found on fork or upstream"; exit 1; }
+          git checkout -q --detach FETCH_HEAD
+          base=${BASE:-$(git rev-parse HEAD~1)}
+          git cat-file -e "$base^{commit}" 2>/dev/null || get "$base" 1
+          changed=$(git diff --name-only "$base" HEAD)
+          tests=${TESTS:-$(printf '%s\n' $changed | grep -E '(^|/)tests/.*test_[^/]*\.py$' || true)}
+          src=$(printf '%s\n' $changed | grep -E '\.py$' | grep -vE '(^|/)tests/' || true)
+          { echo "base=$base"; echo "head=$(git rev-parse HEAD)"; echo "tests=$(echo $tests)"; echo "src=$(echo $src)"; } >> "$GITHUB_OUTPUT"
+      - uses: astral-sh/setup-uv@v6
+      - name: Install
+        run: |
+          uv sync -q --frozen --group dev --group test --extra messaging \
+            || uv sync -q --frozen --extra dev --extra messaging --extra anthropic --extra acp \
+            || uv sync -q --frozen --extra dev || uv sync -q --frozen
+          uv run python -c 'import pytest' 2>/dev/null || uv pip install -q pytest pytest-asyncio pytest-timeout
+      - name: Red and green
+        id: rg
+        env:
+          BASE: ${{ steps.co.outputs.base }}
+          HEAD_SHA: ${{ steps.co.outputs.head }}
+          TESTS: ${{ steps.co.outputs.tests }}
+          SRC: ${{ steps.co.outputs.src }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set +e
+          # Test functions this commit itself adds (vs its parent): the add-on's own claim.
+          git diff -U0 HEAD~1 HEAD -- $TESTS | grep -oE '^\+\s*(async )?def (test_[A-Za-z0-9_]+)' | grep -oE 'test_[A-Za-z0-9_]+' | sort -u > added.txt
+          if [ -n "$TESTS" ]; then
+            uv run python -m pytest -q -p no:cacheprovider --junitxml=green.xml $TESTS > green.log 2>&1; g=$?
+            for f in $SRC; do if git cat-file -e "$BASE:$f" 2>/dev/null; then git show "$BASE:$f" > "$f"; else rm -f "$f"; fi; done
+            uv run python -m pytest -q -p no:cacheprovider --junitxml=red.xml $TESTS > red.log 2>&1; r=$?
+            git checkout -q -- . 2>/dev/null
+          fi
+          python3 - <<'PY'
+          import os, re, xml.etree.ElementTree as ET
+          def res(f):
+              out = {}
+              if not os.path.exists(f): return out
+              for c in ET.parse(f).iter('testcase'):
+                  st = 'fail' if c.find('failure') is not None or c.find('error') is not None else 'skip' if c.find('skipped') is not None else 'pass'
+                  out[c.get('classname', '') + '::' + c.get('name', '')] = st
+              return out
+          g, r = res('green.xml'), res('red.xml')
+          added = set(open('added.txt').read().split())
+          base_name = lambda k: re.sub(r'\[.*', '', k.split('::')[-1])
+          src, tests = os.environ['SRC'].split(), os.environ['TESTS'].split()
+          mine = [k for k in g if base_name(k) in added]
+          judged = mine or list(g)
+          disc = [k for k in judged if g.get(k) == 'pass' and r.get(k) == 'fail']
+          if not tests: v, why = 'ERROR', 'no test files changed; pass tests=<path>'
+          elif not g: v, why = 'ERROR', 'no test results; see the run log'
+          elif not src: v, why = 'ERROR', 'no source changes between base and commit, so RED equals GREEN; pass base=<PR base sha> for a test-only commit'
+          elif any(g[k] == 'fail' for k in judged): v, why = 'GREEN-FAILS', 'a judged test fails with the change applied'
+          elif disc and len(disc) == len(judged): v, why = 'DISCRIMINATES', 'every judged test fails without the change and passes with it'
+          elif disc: v, why = 'PARTIAL', f'{len(disc)} of {len(judged)} judged tests fail without the change; the rest pass either way'
+          else: v, why = 'DOES-NOT-DISCRIMINATE', 'every judged test passes with the change reverted too: not a regression test for it'
+          scope = f'{len(mine)} test(s) added by this commit' if mine else 'all tests in the changed files (this commit adds none)'
+          L = [f'### Red/green: **{v}**', '', why, '', f'Judged: {scope}. RED = `{os.environ["HEAD_SHA"][:10]}` with {len(src)} source file(s) from `{os.environ["BASE"][:10]}`; GREEN = `{os.environ["HEAD_SHA"][:10]}`.', '',
+               '| test | RED | GREEN |', '|---|---|---|']
+          L += [f'| `{k.split("::")[-1]}`{" (added)" if k in mine else ""} | {r.get(k, "-")} | {g[k]} |' for k in sorted(g, key=lambda k: (k not in mine, k))][:40]
+          L += ['', f'Source reverted for RED: `{" ".join(src) or "none"}`', '', f'Run: {os.environ["RUN_URL"]}']
+          open('report.md', 'w').write('\n'.join(L) + '\n')
+          PY
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+          { echo 'report<<RGEOF'; cat report.md; echo RGEOF; } >> "$GITHUB_OUTPUT"
+          for f in green red; do [ -f $f.log ] && { echo "== $f"; tail -40 $f.log; }; done
+  reply:
+    needs: run
+    if: always() && needs.run.result != 'skipped'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT: ${{ needs.run.outputs.report }}
+          RESULT: ${{ needs.run.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -n "$REPORT" ] || REPORT=$(printf '### Red/green: **ERROR**\n\nThe run ended %s before a verdict. Run: %s' "$RESULT" "$RUN_URL")
+          printf 'Re %s\n\n%s\n' "${{ github.event.comment.html_url }}" "$REPORT" > body.md
+          gh api "repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" -F body=@body.md
