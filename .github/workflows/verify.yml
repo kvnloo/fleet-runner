@@ -1,6 +1,7 @@
 name: Factory exact-head verification
-run-name: fleet-${{ inputs.request_id }}
+
 on:
+  pull_request:
   workflow_dispatch:
     inputs:
       repository:
