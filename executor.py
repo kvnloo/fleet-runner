@@ -34,7 +34,7 @@ def validate_inputs(env):
         raise ValueError('sha must be an exact lowercase 40-character commit')
     runner = env['INPUT_RUNNER']
     linux = r'avrea-ubuntu-(?:latest|22\.04|24\.04|26\.04)-(?:arm-)?(?:(?:1|2|4|8|16|32)-vcpu|4-vcpu-8gb|8-vcpu-16gb)'
-    if not re.fullmatch(linux + r'|boat(?:-small|-large|-xlarge)?|avrea-macos-26-(?:8|16)-vcpu|avrea-windows-2025-(?:2|4|8|16)-vcpu|ubuntu-latest|windows-latest|macos-14', runner):
+    if not re.fullmatch(linux + r'|boat(?:-small|-large|-xlarge)?|avrea-macos-26-(?:8|16)-vcpu|avrea-windows-2025-(?:2|4|8|16)-vcpu|ubuntu-latest|windows-latest|macos-14|macos-15|macos-26', runner):
         raise ValueError('unsupported runner label (GitHub labels are timing controls only)')
     if '-arm-32-' in runner or '22.04-arm-' in runner:
         raise ValueError('unsupported ARM size/image')
